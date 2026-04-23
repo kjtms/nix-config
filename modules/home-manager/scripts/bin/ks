@@ -1,129 +1,104 @@
 #!/usr/bin/env python3
-"""
-The script is designed to run in environments where Kubernetes clusters are managed through AWS
-and access is controlled via SAML authentication. It automates the process of logging into the
-appropriate AWS account and setting up the shell environment for further interactions with AWS services.
-
-Key functionalities include:
-- Checking if 'saml2aws' and 'kubectl' are installed on the system.
-- Executes 'kubectx' to switch to specific kubernetes context.
-- Retrieving the current Kubernetes context and extracting the associated AWS account number and region.
-- Parsing the AWS configuration file to find the relevant profile.
-- Finding the correct profile name by matching the account number in the AWS configuration.
-- Executing the 'saml2aws' command with the identified profile to set up the shell environment.
-
-Dependencies:
-- saml2aws: A tool for logging into an AWS account.
-- kubectl: A command-line tool for interacting with Kubernetes clusters.
-- Python 3 and standard libraries: configparser, os, re, subprocess.
-
-Usage:
-The script is executed as a standalone Python script. It does not take any command-line arguments
-and relies on the correct configuration of the AWS and Kubernetes environments on the user's system.
-
-"""
-
+"""ks: kubectx -> AWS account -> AWS profile -> `assume` shell."""
 
 import configparser
 import os
 import re
+import shutil
 import subprocess
+import sys
+from pathlib import Path
+
+REQUIRED_TOOLS = ("kubectx", "kubectl", "assume")
+AWS_CONFIG = Path.home() / ".aws" / "config"
 
 
-def check_dependencies():
-    """
-    Check if required command-line tools are installed.
-    """
-    try:
-        for command in ["saml2aws", "kubectl"]:
-            subprocess.run([command, "help"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except FileNotFoundError:
-        print(f"Error: The command '{command}' is not found. Please install it before proceeding.")
-        exit(1)
+def check_tools() -> None:
+    missing = [t for t in REQUIRED_TOOLS if shutil.which(t) is None]
+    if missing:
+        print(
+            f"ks: missing required tool(s) on PATH: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
-def select_context():
-    """Run kubectx to choose context"""
-    try:
-        subprocess.run(["kubectx"])
-
-    except subprocess.CalledProcessError as e:
-        print(f"Error: kubectx failed with an error: {e}")
-        exit(-1)
+def run_kubectx() -> None:
+    rc = subprocess.run(["kubectx"]).returncode
+    if rc != 0:
+        print("ks: kubectx cancelled or failed", file=sys.stderr)
+        sys.exit(130)
 
 
-def get_kube_context():
-    """Get the current Kubernetes context and extract the account number and region."""
-    try:
-        kube_context = subprocess.check_output(["kubectl", "config", "current-context"]).decode().strip()
-        print(f"Current Kubernetes context: {kube_context}")
-
-        match = re.search(r"arn:aws:eks:([\w-]+):(\d+):cluster/([\w-]+)", kube_context)
-        if match:
-            region = match.group(1)
-            account_number = match.group(2)
-            print(f"Region: {region}")
-            print(f"Account Number: {account_number}")
-            return account_number, region
-        else:
-            raise ValueError("Invalid Kubernetes context ARN")
-    except subprocess.CalledProcessError as e:
-        print(f"Error in getting Kubernetes context: {e}")
-        exit(-1)
+def current_context() -> str:
+    result = subprocess.run(
+        ["kubectl", "config", "current-context"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
 
 
-def parse_aws_config():
-    """Parse AWS config file."""
-    aws_config_path = os.path.expanduser("~/.aws/config")
-    if not os.path.exists(aws_config_path):
-        print("AWS config file not found")
-        exit(-1)
-
-    config = configparser.ConfigParser()
-    config.read(aws_config_path)
-    return config
-
-
-def find_profile_name(config, account_number):
-    """Find the profile name by matching the account number."""
-    for section in config.sections():
-        if "role_arn" in config[section] and account_number in config[section]["role_arn"]:
-            return section.replace("profile ", "")
-    return None
+def account_from_context(ctx: str) -> str:
+    m = re.match(r"^(\d{12})\.", ctx)
+    if not m:
+        print(
+            f"ks: cannot extract AWS account ID from context: {ctx!r}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return m.group(1)
 
 
-def execute_saml2aws_command(profile_name, region):
-    """Execute the saml2aws command with the found values."""
-    shell = os.getenv("SHELL", "/bin/zsh")
-    process_env = dict(os.environ, AWS_PROFILE=profile_name, AWS_REGION=region)
+def profile_for_account(account_id: str) -> str:
+    if not AWS_CONFIG.is_file():
+        print(f"ks: {AWS_CONFIG} not found", file=sys.stderr)
+        sys.exit(3)
 
-    try:
-        subprocess.run(["saml2aws", "exec", "--exec-profile", profile_name, shell], env=process_env, check=True)
-    except subprocess.CalledProcessError:
-        print("Existing credentials failed, attempting new login")
-        subprocess.run(["saml2aws", "login", "--skip-prompt"], check=True)
-        subprocess.run(["saml2aws", "exec", "--exec-profile", profile_name, shell], env=process_env, check=True)
+    cp = configparser.ConfigParser()
+    cp.read(AWS_CONFIG)
+
+    for section in cp.sections():
+        if not section.startswith("profile "):
+            continue
+        name = section[len("profile "):].strip()
+        if cp[section].get("granted_sso_account_id", "").strip() == account_id:
+            return name
+
+    # Fallback: match by name prefix.
+    for section in cp.sections():
+        if not section.startswith("profile "):
+            continue
+        name = section[len("profile "):].strip()
+        if name.startswith(f"{account_id}."):
+            return name
+
+    print(
+        f"ks: no AWS profile found for account {account_id} in {AWS_CONFIG}",
+        file=sys.stderr,
+    )
+    sys.exit(3)
 
 
-def main():
-    """Main function."""
-    check_dependencies()
-    select_context()
-    account_number, region = get_kube_context()
-    aws_config = parse_aws_config()
-    profile_name = find_profile_name(aws_config, account_number)
+def exec_assume(profile: str) -> None:
+    shell = os.environ.get("SHELL", "/bin/sh")
+    env = {**os.environ, "GRANTED_ALIAS_CONFIGURED": "true"}
+    os.execvpe(
+        "assume",
+        ["assume", "--exec", shell, profile],
+        env,
+    )
 
-    if profile_name:
-        print(f"Profile Name: {profile_name}")
-        execute_saml2aws_command(profile_name, region)
-    else:
-        print("Profile not found for the account number")
-        exit(-1)
+
+def main() -> None:
+    check_tools()
+    run_kubectx()
+    ctx = current_context()
+    account = account_from_context(ctx)
+    profile = profile_for_account(account)
+    exec_assume(profile)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by the user. Exiting...")
-        exit(1)
+    main()

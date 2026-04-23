@@ -1,4 +1,3 @@
-{ ... }:
 {
   flake.modules.homeManager.programsZsh =
     {
@@ -9,7 +8,6 @@
     {
       programs.zsh = {
         enable = true;
-        enableCompletion = true;
         shellAliases = {
           ff = "fastfetch";
 
@@ -27,6 +25,7 @@
           # kubectl
           k = "kubectl";
           kctx = "kubectx";
+          kns = "kubens";
           kgno = "kubectl get node";
           kdno = "kubectl describe node";
           kgp = "kubectl get pods";
@@ -74,7 +73,7 @@
         };
         initContent = ''
           # kubectl auto-complete
-          source <(kubectl completion zsh)
+          source ${pkgs.kubectl}/share/zsh/site-functions/_kubectl
 
           # bindings
           bindkey -e
@@ -82,7 +81,7 @@
           bindkey '^[[1;5C' forward-word
           bindkey '^[[1;5D' backward-word
 
-          # open commands in $EDITOR with C-e
+          # open commands in $EDITOR with C-v
           autoload -z edit-command-line
           zle -N edit-command-line
           bindkey "^v" edit-command-line
