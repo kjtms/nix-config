@@ -6,17 +6,15 @@
       ...
     }:
     {
-      systemd.user.startServices = lib.mkIf (!pkgs.stdenv.hostPlatform.isDarwin) "sd-switch";
-
       home.packages =
         with pkgs;
         [
           awscli2
           brave
+          claude-code
           dig
           eza
           fd
-          github-copilot-cli
           jq
           nh
           nodejs
@@ -40,6 +38,9 @@
         ]
         ++ lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) [
           anki
+          gcc
+          gnumake
+          killall
           tesseract
           unzip
           wl-clipboard
