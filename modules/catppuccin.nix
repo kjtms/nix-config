@@ -1,23 +1,32 @@
 { inputs, ... }:
 {
-  flake.modules.nixos.catppuccin = {
-    imports = [
-      inputs.catppuccin.nixosModules.catppuccin
-    ];
-
-    catppuccin.cache.enable = true;
-  };
-
   flake.modules.homeManager.catppuccin =
-    { config, ... }:
+    { config, pkgs, ... }:
+    let
+      inherit (config.profile.appearance) catppuccin;
+
+      paletteFile = "${
+        inputs.catppuccin.packages.${pkgs.stdenv.hostPlatform.system}.sources.palette
+      }/palette.json";
+      palette = builtins.fromJSON (builtins.readFile paletteFile);
+      flavorColors = palette.${catppuccin.flavor}.colors;
+    in
     {
       imports = [
         inputs.catppuccin.homeModules.catppuccin
       ];
 
+      # Catppuccin colors helper
+      _module.args.catppuccinColor = name: flavorColors.${name}.hex;
+
       catppuccin = {
         enable = true;
         inherit (config.profile.appearance.catppuccin) flavor accent;
+        sources = inputs.catppuccin.packages.${pkgs.stdenv.hostPlatform.system}.overrideScope (
+          final: prev: {
+            whiskers = pkgs.catppuccin-whiskers;
+          }
+        );
       };
     };
 }

@@ -28,13 +28,8 @@ in
     };
 
   flake.modules.homeManager.hyprland =
-    { pkgs, ... }:
+    { mkQuitAllEntry, ... }:
     {
-      home.packages = with pkgs; [
-        grimblast
-        hyprpicker
-      ];
-
       wayland.windowManager.hyprland = {
         enable = true;
         package = null;
@@ -120,6 +115,7 @@ in
             "center on, match:float true"
 
             # Floating dialogs (sized)
+            "match:class ^(xdg-desktop-portal-gtk)$, float on, size (monitor_w*0.4) (monitor_h*0.4)"
             "match:class ^(org.pulseaudio.pavucontrol)$, float on, size (monitor_w*0.5) (monitor_h*0.5)"
             "match:initial_title ^(_crx_.*)$, float on, size (monitor_w*0.15) (monitor_h*0.4)"
 
@@ -206,10 +202,10 @@ in
             "ALT SHIFT, 2, exec, ocr"
 
             # Screenshot area
-            "$mainMod SHIFT, S, exec, grimblast -f save area - | swappy -f -"
+            "$mainMod SHIFT, S, exec, wayblast area | swappy -f -"
 
             # Screenshot entire screen
-            "$mainMod CTRL, S, exec, grimblast -f save output - | swappy -f -"
+            "$mainMod CTRL, S, exec, wayblast fullscreen | swappy -f -"
 
             # Screen recording
             "$mainMod SHIFT, R, exec, toggle-screen-recording"
@@ -251,11 +247,7 @@ in
 
       xdg = {
         desktopEntries = {
-          quit-all-applications = {
-            name = "Quit All Applications";
-            exec = ''${pkgs.bash}/bin/bash -lc "hyprctl -j clients | jq -r '.[].address' | xargs -r -I {} hyprctl dispatch closewindow address:{}"'';
-            icon = "system-log-out";
-          };
+          quit-all-applications = mkQuitAllEntry "hyprctl -j clients | jq -r '.[].address' | xargs -r -I {} hyprctl dispatch closewindow address:{}";
 
           uuctl = {
             name = "uuctl";

@@ -19,7 +19,6 @@ in
       nixos.audio
       nixos.bluetooth
       nixos.boot
-      nixos.catppuccin
       nixos.containers
       nixos.locale
       nixos.networking
@@ -50,6 +49,7 @@ in
       homeManager.bat
       homeManager.btop
       homeManager.catppuccin
+      homeManager.claudeCode
       homeManager.fastfetch
       homeManager.fonts
       homeManager.fzf
@@ -58,7 +58,9 @@ in
       homeManager.gpg
       homeManager.granted
       homeManager.k8s
+      homeManager.mcp
       homeManager.neovim
+      homeManager.opencode
       homeManager.packages
       homeManager.scripts
       homeManager.starship

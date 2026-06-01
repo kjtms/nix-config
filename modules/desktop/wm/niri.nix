@@ -1,4 +1,4 @@
-{ inputs, config, ... }:
+{ config, ... }:
 let
   inherit (config.flake.modules) nixos homeManager;
 in
@@ -15,25 +15,21 @@ in
   };
 
   flake.modules.homeManager.niri =
-    { config, pkgs, ... }:
+    {
+      config,
+      pkgs,
+      catppuccinColor,
+      mkQuitAllEntry,
+      ...
+    }:
     let
       inherit (config.profile.appearance) catppuccin;
-
-      paletteFile = "${
-        inputs.catppuccin.packages.${pkgs.stdenv.hostPlatform.system}.palette
-      }/palette.json";
-      palette = builtins.fromJSON (builtins.readFile paletteFile);
-      flavorPalette = palette.${catppuccin.flavor}.colors;
-      color = name: flavorPalette.${name}.hex;
+      color = catppuccinColor;
     in
     {
       home.packages = [ pkgs.xwayland-satellite ];
 
-      xdg.desktopEntries.quit-all-applications = {
-        name = "Quit All Applications";
-        exec = ''${pkgs.bash}/bin/bash -lc "niri msg -j windows | jq -r '.[].id' | xargs -r -I {} niri msg action close-window --id {}"'';
-        icon = "system-log-out";
-      };
+      xdg.desktopEntries.quit-all-applications = mkQuitAllEntry "niri msg -j windows | jq -r '.[].id' | xargs -r -I {} niri msg action close-window --id {}";
 
       xdg.configFile."niri/config.kdl".text = ''
         // Input device settings
@@ -156,7 +152,7 @@ in
 
         window-rule {
             match app-id=r#"^org\.telegram\.desktop$"#
-            exclude title="Choose Files"
+            exclude title=r#"(Choose Files|Media viewer|Save (File|Video|Image))"#
             default-column-width { proportion 1.0; }
             open-on-workspace "messages"
         }
@@ -233,16 +229,16 @@ in
             Alt+Shift+V hotkey-overlay-title="Clipboard History" { spawn-sh "noctalia-shell ipc call launcher clipboard"; }
 
             // Pick color from screen and copy to clipboard
-            Mod+Shift+C hotkey-overlay-title="Color Picker" { spawn-sh "niri msg pick-color | grep -o '#.*' | wl-copy"; }
+            Mod+Shift+C hotkey-overlay-title="Color Picker" { spawn "hyprpicker" "-a"; }
 
             // OCR
             Alt+Shift+2 hotkey-overlay-title="OCR Screenshot" { spawn-sh "ocr"; }
 
             // Screenshot area
-            Mod+Shift+S hotkey-overlay-title="Screenshot Area" { spawn-sh "grim -g \"$(slurp)\" - | swappy -f -"; }
+            Mod+Shift+S hotkey-overlay-title="Screenshot Area" { spawn-sh "wayblast area | swappy -f -"; }
 
             // Screenshot entire screen
-            Mod+Ctrl+S hotkey-overlay-title="Screenshot Screen" { spawn-sh "grim - | swappy -f -"; }
+            Mod+Ctrl+S hotkey-overlay-title="Screenshot Screen" { spawn-sh "wayblast fullscreen | swappy -f -"; }
 
             // Screen recording
             Mod+Shift+R hotkey-overlay-title="Toggle Screen Recording" { spawn-sh "toggle-screen-recording"; }
